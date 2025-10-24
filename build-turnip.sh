@@ -111,8 +111,8 @@ echo "Creating Meson cross file..." $'\n'
 cat <<EOF >"android-aarch64.txt"
 [binaries]
 ar = '$ndk_bin/llvm-ar'
-c = ['ccache', '$ndk_bin/aarch64-linux-android$sdkver-clang', '-Wno-deprecated-declarations', '-Wno-gnu-alignof-expression']
-cpp = ['ccache', '$ndk_bin/aarch64-linux-android$sdkver-clang++', '--start-no-unused-arguments', '-fno-exceptions', '-fno-unwind-tables', '-fno-asynchronous-unwind-tables', '-static-libstdc++', '--end-no-unused-arguments', '-Wno-error=c++11-narrowing', '-Wno-deprecated-declarations', '-Wno-gnu-alignof-expression']
+c = ['ccache', '$ndk_bin/aarch64-linux-android$sdkver-clang', '-O3', '-DVK_USE_PLATFORM_ANDROID_KHR', '-fPIC', '-Wno-deprecated-declarations', '-Wno-gnu-alignof-expression']
+cpp = ['ccache', '$ndk_bin/aarch64-linux-android$sdkver-clang++', '-O3', '-fno-rtti', '-DVK_USE_PLATFORM_ANDROID_KHR', '-fPIC', '--start-no-unused-arguments', '-fno-exceptions', '-fno-unwind-tables', '-fno-asynchronous-unwind-tables', '--end-no-unused-arguments', '-Wno-error=c++11-narrowing', '-Wno-deprecated-declarations', '-Wno-gnu-alignof-expression']
 c_ld = '$ndk_bin/ld.lld'
 cpp_ld = '$ndk_bin/ld.lld'
 strip = '$ndk_bin/aarch64-linux-android-strip'
@@ -148,9 +148,14 @@ CC=clang CXX=clang++ meson setup build-android-aarch64 \
     -Dplatform-sdk-version="$sdkver" \
     -Dandroid-stub=true \
     -Dgallium-drivers= \
+    -Dshader-cache=enabled \
+    -Dshader-cache-default=true \
+    -Dvulkan-beta=true \
     -Dvulkan-drivers=freedreno \
-    -Dfreedreno-kmds=kgsl \
+    -Dfreedreno-kmds=kgsl,msm \
     -Db_lto=true \
+    -Dcpp_rtti=false \
+    -Dallow-fallback-for=libdrm \
     -Degl=disabled \
     -Dstrip=true &> $workdir/meson_log
 
