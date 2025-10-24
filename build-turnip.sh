@@ -111,8 +111,8 @@ echo "Creating Meson cross file..." $'\n'
 cat <<EOF >"android-aarch64.txt"
 [binaries]
 ar = '$ndk_bin/llvm-ar'
-c = ['ccache', '$ndk_bin/aarch64-linux-android$sdkver-clang', '-O3', '-Wno-deprecated-declarations', '-Wno-gnu-alignof-expression']
-cpp = ['ccache', '$ndk_bin/aarch64-linux-android$sdkver-clang++', '-O3', '--start-no-unused-arguments', '-fno-exceptions', '-fno-unwind-tables', '-fno-asynchronous-unwind-tables', '--end-no-unused-arguments', '-Wno-error=c++11-narrowing', '-Wno-deprecated-declarations', '-Wno-gnu-alignof-expression']
+c = ['ccache', '$ndk_bin/aarch64-linux-android$sdkver-clang', '-O3', '-fno-exceptions', '-fno-unwind-tables', '-fno-asynchronous-unwind-tables']
+cpp = ['ccache', '$ndk_bin/aarch64-linux-android$sdkver-clang++', '-O3', '-fno-exceptions', '-fno-unwind-tables', '-fno-asynchronous-unwind-tables', '--start-no-unused-arguments', '--end-no-unused-arguments']
 c_ld = '$ndk_bin/ld.lld'
 cpp_ld = '$ndk_bin/ld.lld'
 strip = '$ndk_bin/aarch64-linux-android-strip'
@@ -147,6 +147,7 @@ CC=clang CXX=clang++ meson setup build-android-aarch64 \
     -Dplatforms=android \
     -Dplatform-sdk-version="$sdkver" \
     -Dandroid-stub=true \
+    -Dandroid-libbacktrace=disabled \
     -Dgallium-drivers= \
     -Dshader-cache=true \
     -Dshader-cache-default=true \
