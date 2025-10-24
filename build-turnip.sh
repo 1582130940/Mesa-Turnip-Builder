@@ -11,8 +11,8 @@ ndkver="https://dl.google.com/android/repository/${ndkdir}-linux.zip"
 sdkver="34"
 
 # Define Mesa version and download URL
-mesadir="mesa-mesa-25.2.4"
-mesaver="https://gitlab.freedesktop.org/mesa/mesa/-/archive/mesa-25.2.4/mesa-mesa-25.2.4.zip?ref_type=tags"
+mesadir="mesa-mesa-25.3.0-rc2"
+mesaver="https://gitlab.freedesktop.org/mesa/mesa/-/archive/mesa-25.3.0-rc2/mesa-mesa-25.3.0-rc2.zip?ref_type=tags"
 
 # Define working directories
 workdir="$(pwd)/turnip_workdir"         # Base directory for all operations
