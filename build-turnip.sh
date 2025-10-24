@@ -43,33 +43,43 @@ done
 sleep 1.5
 clear
 
-# Clean work directory if it exists
-if [ -d "$workdir" ]; then
-    echo "Work directory already exists. Cleaning before proceeding..." $'\n'
-    rm -rf "$workdir"
-    sleep 2
-fi
+# Ensure work directory exists and enter it
+echo "Ensuring work directory exists: $workdir" $'\n'
+mkdir -p "$workdir"
+cd "$workdir"
 
-echo "Creating and entering the work directory..." $'\n'
-mkdir -p "$workdir" && cd "$_"
+# Clean *only* build artifacts, keeping existing .zip files
+echo "Cleaning previous build artifacts (if any)..." $'\n'
+rm -rf "$ndkdir" "$mesadir" "fake-cc" \
+       "libvulkan_freedreno.so" "vulkan.adreno.so" \
+       "meson_log" "ninja_log" "android-aarch64.txt" "native.txt"
+sleep 2
 
 # Download Android NDK
-echo "Downloading Android NDK..." $'\n'
-curl $ndkver --output "$ndkdir".zip &> /dev/null
+if [ ! -f "${ndkdir}.zip" ]; then
+    echo "Downloading Android NDK..." $'\n'
+    curl $ndkver --output "${ndkdir}.zip" &> /dev/null
+else
+    echo -e "$green - Found ${ndkdir}.zip. Skipping NDK download. $nocolor" $'\n'
+fi
 
 clear
 
 echo "Extracting Android NDK..." $'\n'
-unzip "$ndkdir".zip &> /dev/null
+unzip "${ndkdir}.zip" &> /dev/null
 
 # Download Mesa source
-echo "Downloading Latest Mesa source ..." $'\n'
-curl $mesaver --output "$mesadir".zip &> /dev/null
+if [ ! -f "${mesadir}.zip" ]; then
+    echo "Downloading Latest Mesa source ..." $'\n'
+    curl $mesaver --output "${mesadir}.zip" &> /dev/null
+else
+    echo -e "$green - Found ${mesadir}.zip. Skipping Mesa download. $nocolor" $'\n'
+fi
 
 clear
 
 echo "Extracting Mesa source..." $'\n'
-unzip "$mesadir".zip &> /dev/null
+unzip "${mesadir}.zip" &> /dev/null
 cd $mesadir
 
 # Set NDK Clang bin directory
