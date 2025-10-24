@@ -82,6 +82,10 @@ echo "Extracting Mesa source..." $'\n'
 unzip "${mesadir}.zip" &> /dev/null
 cd $mesadir
 
+# Patch Mesa source
+echo "Applying patch: Enable all Vulkan extensions for Android..." $'\n'
+patch -p1 < ../../patches/Enable-all-Vulkan-extensions-for-Android.patch
+
 # Set NDK Clang bin directory
 ndk_bin="$workdir/$ndkdir/toolchains/llvm/prebuilt/linux-x86_64/bin"
 
