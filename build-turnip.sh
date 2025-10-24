@@ -11,8 +11,8 @@ ndkver="https://dl.google.com/android/repository/${ndkdir}-linux.zip"
 sdkver="34"
 
 # Define Mesa version and download URL
-mesadir="mesa-mesa-25.2.4"
-mesaver="https://gitlab.freedesktop.org/mesa/mesa/-/archive/mesa-25.2.4/mesa-mesa-25.2.4.zip?ref_type=tags"
+mesadir="mesa-mesa-26.0.0"
+mesaver="https://gitlab.freedesktop.org/mesa/mesa/-/archive/mesa-26.0.0/mesa-mesa-26.0.0.zip?ref_type=tags"
 
 # Define working directories
 workdir="$(pwd)/turnip_workdir"         # Base directory for all operations
@@ -179,3 +179,4 @@ fi
 echo "Move necessary files from the work directory..." $'\n'
 mv "$workdir"/libvulkan_freedreno.so "$workdir"/vulkan.adreno.so
 chmod 0664 "$workdir"/vulkan.adreno.so
+patchelf --replace-needed "libc++_shared.so" "libc++.so" "$workdir"/vulkan.adreno.so
