@@ -148,7 +148,6 @@ CC=clang CXX=clang++ meson setup build-android-aarch64 \
     -Dvulkan-drivers=freedreno \
     -Dfreedreno-kmds=kgsl \
     -Db_lto=true \
-    -Db_lto_mode=thin \
     -Degl=disabled \
     -Dstrip=true &> $workdir/meson_log
 
