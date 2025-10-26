@@ -169,10 +169,12 @@ ninja -C build-android-aarch64 &> "$workdir"/ninja_log
 echo "Using patchelf to match .so name..." $'\n'
 cp "$workdir"/"$mesadir"/build-android-aarch64/src/freedreno/vulkan/libvulkan_freedreno.so "$workdir"
 cd "$workdir"
+patchelf --set-soname vulkan.adreno.so libvulkan_freedreno.so
 
 if ! [ -a libvulkan_freedreno.so ]; then
     echo -e "$red Build failed! libvulkan_freedreno.so not found $nocolor" && exit 1
 fi
 
-echo "Copy necessary files from the work directory..." $'\n'
-cp "$workdir"/libvulkan_freedreno.so "$workdir"/vulkan.adreno.so
+echo "Move necessary files from the work directory..." $'\n'
+mv "$workdir"/libvulkan_freedreno.so "$workdir"/vulkan.adreno.so
+chmod 0664 "$workdir"/vulkan.adreno.so
