@@ -1,0 +1,33 @@
+From: NightHammer1000 <nightstorm@kpc.bz>
+Date: Sat, 4 Apr 2026 17:15:57 +0200
+Subject: [PATCH] tu: expose Vulkan 1.4 on a6xx
+
+Upstream gates Vulkan 1.4 on `pdevice->info->chip >= 7` and reports 1.3 for
+Adreno 6xx. Expose TU_API_VERSION regardless of the chip generation.
+
+Everything Vulkan 1.4 raises beyond 1.3 is met by turnip except
+maxBoundDescriptorSets, which a6xx reports as 4 where 1.4 requires 7: a6xx
+has 5 bindless bases and reserves one for the driver, so there is no spare
+descriptor set. A driver built with this patch is therefore not conformant,
+and an application that allocates seven descriptor sets because 1.4 promises
+seven will fail on a6xx. The other raised limits are met: image dimensions
+16384/16384/2048/16384 against 8192/8192/512/8192, maxImageArrayLayers 2048
+against 2048, maxUniformBufferRange 65536 against 65536, maxPushConstantsSize
+256 against 256.
+
+Signed-off-by: NightHammer1000 <nightstorm@kpc.bz>
+---
+diff --git a/src/freedreno/vulkan/tu_device.cc b/src/freedreno/vulkan/tu_device.cc
+index e8ef940..30d0e0b 100644
+--- a/src/freedreno/vulkan/tu_device.cc
++++ b/src/freedreno/vulkan/tu_device.cc
+@@ -1295,8 +1295,7 @@ tu_get_properties(struct tu_physical_device *pdevice,
+ 
+    props->apiVersion =
+       tu_has_multiview(pdevice) ?
+-         ((pdevice->info->chip >= 7) ? TU_API_VERSION :
+-            VK_MAKE_VERSION(1, 3, VK_HEADER_VERSION))
++         TU_API_VERSION
+          : VK_MAKE_VERSION(1, 0, VK_HEADER_VERSION);
+    props->driverVersion = vk_get_driver_version();
+    props->vendorID = pdevice->instance->drirc.debug.force_vk_vendor != 0 ?
