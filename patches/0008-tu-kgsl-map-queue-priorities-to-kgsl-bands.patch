@@ -1,0 +1,60 @@
+From: LFRon <ronforever@outlook.com>
+Date: 2026-08-06 12:06:00 +0800
+Subject: [PATCH] tu/kgsl: map Vulkan queue priorities to KGSL bands
+
+The KGSL backend advertised a single submit priority and created every draw
+context with an undefined priority, which KGSL replaces with its medium
+default. SurfaceFlinger, SystemUI and application queues therefore shared one
+scheduling band, so lower-priority work could delay latency-sensitive queues.
+
+Expose the four abstract priority indices and map HIGH, MEDIUM and LOW to
+KGSL priorities 4, 8 and 12. Index zero stays undefined for the sparse queue
+and to avoid the unadvertised realtime band, and out-of-range indices are
+rejected before the context is created.
+
+Signed-off-by: LFRon <ronforever@outlook.com>
+---
+diff --git a/src/freedreno/vulkan/tu_knl_kgsl.cc b/src/freedreno/vulkan/tu_knl_kgsl.cc
+index 3db801b0..7dc279b5 100644
+--- a/src/freedreno/vulkan/tu_knl_kgsl.cc
++++ b/src/freedreno/vulkan/tu_knl_kgsl.cc
+@@ -34,6 +34,13 @@
+ /* ION_HEAP(ION_SYSTEM_HEAP_ID) */
+ #define KGSL_ION_SYSTEM_HEAP_MASK (1u << 25)
+ 
++static constexpr uint32_t kgsl_context_priorities[] = {
++   KGSL_CONTEXT_PRIORITY_UNDEF,
++   4,
++   8,
++   12,
++};
++
+ 
+ static int
+ safe_ioctl(int fd, unsigned long request, void *arg)
+@@ -50,10 +57,13 @@ safe_ioctl(int fd, unsigned long request, void *arg)
+ static int
+ kgsl_submitqueue_new(struct tu_device *dev, struct tu_queue *queue)
+ {
++   if (queue->priority >= ARRAY_SIZE(kgsl_context_priorities))
++      return -EINVAL;
++
++   const uint32_t priority = kgsl_context_priorities[queue->priority];
+    struct kgsl_drawctxt_create req = {
+-      .flags = KGSL_CONTEXT_SAVE_GMEM |
+-              KGSL_CONTEXT_NO_GMEM_ALLOC |
+-              KGSL_CONTEXT_PREAMBLE,
++      .flags = KGSL_CONTEXT_SAVE_GMEM | KGSL_CONTEXT_NO_GMEM_ALLOC | KGSL_CONTEXT_PREAMBLE |
++               (priority << KGSL_CONTEXT_PRIORITY_SHIFT),
+    };
+ 
+    int ret = safe_ioctl(dev->physical_device->local_fd, IOCTL_KGSL_DRAWCTXT_CREATE, &req);
+@@ -2001,7 +2011,7 @@ tu_knl_kgsl_load(struct tu_instance *instance, int fd)
+ 
+    device->has_raytracing = tu_kgsl_get_raytracing(fd);
+ 
+-   device->submitqueue_priority_count = 1;
++   device->submitqueue_priority_count = ARRAY_SIZE(kgsl_context_priorities);
+    
+    device->timeline_type = vk_sync_timeline_get_type(&vk_kgsl_sync_type);
+ 
