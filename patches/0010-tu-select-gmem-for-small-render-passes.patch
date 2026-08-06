@@ -1,0 +1,124 @@
+From: LFRon <ronforever@outlook.com>
+Date: 2026-08-06 19:03:12 +0800
+Subject: [PATCH] tu: select GMEM for bandwidth-heavy small render passes
+
+Turnip skips autotuning render passes with fewer than five draws because
+their hashes are hard to match reliably. Retained-mode UI renderers commonly
+use full-surface clear or resolve passes with a handful of draws, so those
+passes always fell back to SYSMEM even when attachment traffic made GMEM
+cheaper.
+
+Recognize small passes whose attachment costs alone guarantee a GMEM win and
+select GMEM directly, without creating render-pass history, hashing or GPU
+metric allocation. The path requires the bandwidth algorithm to be enabled,
+binning to be useful, the render area to span more than two tiles, and no
+small-pass tuning or latency override.
+
+Signed-off-by: LFRon <ronforever@outlook.com>
+---
+diff --git a/src/freedreno/vulkan/tu_autotune.cc b/src/freedreno/vulkan/tu_autotune.cc
+index e60329d..6cefa53 100644
+--- a/src/freedreno/vulkan/tu_autotune.cc
++++ b/src/freedreno/vulkan/tu_autotune.cc
+@@ -980,9 +980,45 @@ struct tu_autotune::rp_history {
+    /** Bandwidth Estimation Algorithm **/
+    struct bandwidth_algo {
+     private:
++      static constexpr uint32_t GMEM_FIXED_COST_NUMERATOR = 11;
++      static constexpr uint32_t COST_DENOMINATOR = 10;
++
+       exponential_average<uint32_t> mean_samples_passed;
+ 
+     public:
++      static uint64_t get_pass_pixel_count(const struct tu_cmd_state *cmd_state,
++                                           const struct tu_framebuffer *framebuffer)
++      {
++         uint64_t pass_pixel_count = 0;
++         if (cmd_state->per_layer_render_area) {
++            for (unsigned i = 0; i < cmd_state->pass->num_views; i++) {
++               const VkExtent2D &extent = cmd_state->render_areas[i].extent;
++               pass_pixel_count += (uint64_t) extent.width * extent.height;
++            }
++         } else {
++            const VkExtent2D &extent = cmd_state->render_areas[0].extent;
++            pass_pixel_count =
++               (uint64_t) extent.width * extent.height * MAX2(cmd_state->pass->num_views, framebuffer->layers);
++         }
++
++         return pass_pixel_count;
++      }
++
++      static bool render_area_is_large_for_binning(const struct tu_cmd_state *cmd_state,
++                                                   const struct tu_framebuffer *framebuffer)
++      {
++         const VkExtent2D &tile = cmd_state->tiling->tile0;
++         const uint64_t tile_pixel_count = (uint64_t) tile.width * tile.height;
++
++         return get_pass_pixel_count(cmd_state, framebuffer) > tile_pixel_count * 2;
++      }
++
++      static constexpr bool fixed_costs_prefer_gmem(const struct tu_render_pass *pass)
++      {
++         return (uint64_t) pass->sysmem_bandwidth_per_pixel * COST_DENOMINATOR >
++                (uint64_t) pass->gmem_bandwidth_per_pixel * GMEM_FIXED_COST_NUMERATOR;
++      }
++
+       void update(uint32_t samples)
+       {
+          mean_samples_passed.add(samples);
+@@ -994,17 +1030,7 @@ struct tu_autotune::rp_history {
+                                    const struct tu_framebuffer *framebuffer,
+                                    const struct tu_render_pass_state *rp_state)
+       {
+-         uint32_t pass_pixel_count = 0;
+-         if (cmd_state->per_layer_render_area) {
+-            for (unsigned i = 0; i < cmd_state->pass->num_views; i++) {
+-               const VkExtent2D &extent = cmd_state->render_areas[i].extent;
+-               pass_pixel_count += extent.width * extent.height;
+-            }
+-         } else {
+-            const VkExtent2D &extent = cmd_state->render_areas[0].extent;
+-            pass_pixel_count =
+-               extent.width * extent.height * MAX2(cmd_state->pass->num_views, cmd_state->framebuffer->layers);
+-         }
++         const uint64_t pass_pixel_count = get_pass_pixel_count(cmd_state, framebuffer);
+ 
+          uint64_t sysmem_bandwidth = (uint64_t) pass->sysmem_bandwidth_per_pixel * pass_pixel_count;
+          uint64_t gmem_bandwidth = (uint64_t) pass->gmem_bandwidth_per_pixel * pass_pixel_count;
+@@ -1028,7 +1054,7 @@ struct tu_autotune::rp_history {
+          /* Drawcalls access GMEM in GMEM rendering, but we do not want to ignore them completely.  The state changes
+           * between tiles also have an overhead.  The magic numbers of 11 and 10 are randomly chosen.
+           */
+-         gmem_bandwidth = (gmem_bandwidth * 11 + total_draw_call_bandwidth) / 10;
++         gmem_bandwidth = (gmem_bandwidth * GMEM_FIXED_COST_NUMERATOR + total_draw_call_bandwidth) / COST_DENOMINATOR;
+ 
+          bool select_sysmem = sysmem_bandwidth <= gmem_bandwidth;
+          render_mode mode = select_sysmem ? render_mode::SYSMEM : render_mode::GMEM;
+@@ -1809,10 +1835,24 @@ tu_autotune::get_optimal_mode(struct tu_cmd_buffer *cmd_buffer, rp_ctx_t *rp_ctx
+     *
+     * Note: If we detect a small RP to be latency sensitive, we enable the autotuner for it anyway.
+     */
+-   bool ignore_small_rp = !config.test(mod_flag::TUNE_SMALL) && rp_state->drawcall_count < 5 &&
+-                          (!latency_info || !latency_info->seen_latency_spike);
++   if (!enabled || simultaneous_use)
++      return default_mode;
++
++   const bool small_rp = rp_state->drawcall_count < 5;
++   const bool track_small_rp_latency = latency_info && latency_info->seen_latency_spike;
++   const bool statically_select_gmem =
++      small_rp && !config.test(mod_flag::TUNE_SMALL) && !track_small_rp_latency &&
++      config.is_enabled(algorithm::BANDWIDTH) && cmd_state->tiling->vsc.binning_useful &&
++      rp_history::bandwidth_algo::render_area_is_large_for_binning(cmd_state, framebuffer) &&
++      rp_history::bandwidth_algo::fixed_costs_prefer_gmem(pass);
++
++   if (statically_select_gmem) {
++      at_log_base("small RP fixed attachment costs prefer GMEM");
++      return render_mode::GMEM;
++   }
+ 
+-   if (!enabled || simultaneous_use || ignore_small_rp)
++   const bool ignore_small_rp = !config.test(mod_flag::TUNE_SMALL) && small_rp && !track_small_rp_latency;
++   if (ignore_small_rp)
+       return default_mode;
+ 
+    /* We can return early with the decision based on the draw call count, instead of needing to hash the renderpass
