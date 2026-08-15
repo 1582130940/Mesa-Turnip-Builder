@@ -1,0 +1,47 @@
+From: LFRon <ronforever@outlook.com>
+Date: 2026-08-15 14:29:16 +0800
+Subject: [PATCH] tu/kgsl: reject unresolved semaphore waits
+
+kgsl_syncobj_merge can leave a wait in the UNSIGNALED state when a binary
+semaphore has no usable timestamp or sync-file payload. The queue paths
+guarded this only with assertions, which are compiled out in release builds,
+so the wait reached KGSL and could block forever.
+
+Check the merged wait explicitly in both the sparse-bind and the command
+submit path, destroy the temporary sync objects and mark the device lost.
+
+Signed-off-by: LFRon <ronforever@outlook.com>
+---
+diff --git a/src/freedreno/vulkan/tu_knl_kgsl.cc b/src/freedreno/vulkan/tu_knl_kgsl.cc
+index 8b51fa2..7f7a644 100644
+--- a/src/freedreno/vulkan/tu_knl_kgsl.cc
++++ b/src/freedreno/vulkan/tu_knl_kgsl.cc
+@@ -1429,8 +1429,12 @@ kgsl_queue_submit(struct tu_queue *queue, void *_submit,
+ 
+       struct kgsl_syncobj wait_sync =
+          kgsl_syncobj_merge(wait_semaphores, wait_count + 1);
+-      assert(wait_sync.state !=
+-             KGSL_SYNCOBJ_STATE_UNSIGNALED); // Would wait forever
++      if (unlikely(wait_sync.state == KGSL_SYNCOBJ_STATE_UNSIGNALED)) {
++         kgsl_syncobj_destroy(&wait_sync);
++         kgsl_syncobj_destroy(&last_submit_sync);
++         return vk_device_set_lost(&queue->device->vk,
++                                   "refusing to submit an unsignaled semaphore wait to KGSL");
++      }
+ 
+       if (signal_count == 1) {
+          /* Move instead of duplicating the syncobj, as we don't need to
+@@ -1508,8 +1512,11 @@ kgsl_queue_submit(struct tu_queue *queue, void *_submit,
+ 
+    struct kgsl_syncobj wait_sync =
+       kgsl_syncobj_merge(wait_semaphores, wait_count);
+-   assert(wait_sync.state !=
+-          KGSL_SYNCOBJ_STATE_UNSIGNALED); // Would wait forever
++   if (unlikely(wait_sync.state == KGSL_SYNCOBJ_STATE_UNSIGNALED)) {
++      kgsl_syncobj_destroy(&wait_sync);
++      return vk_device_set_lost(&queue->device->vk,
++                                "refusing to submit an unsignaled semaphore wait to KGSL");
++   }
+ 
+    struct kgsl_cmd_syncpoint_timestamp ts;
+    struct kgsl_cmd_syncpoint_fence fn;
