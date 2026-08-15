@@ -1,0 +1,34 @@
+From: LFRon <ronforever@outlook.com>
+Date: 2026-08-15 20:55:51 +0800
+Subject: [PATCH] tu/kgsl: materialize fences for no-op submits
+
+A Vulkan sync-fd payload may use fd -1 to represent an already-signaled
+fence, but Android EGL native-fence consumers require a real sync_file. A
+KGSL no-op queue submission whose waits were already satisfied could export
+VK_SUCCESS with fd -1, leaving GLConsumer release synchronization on a stale
+or black frame.
+
+Represent the pure signaled result of a no-op submission as timestamp zero
+on the submitting context, which is already retired, so the timestamp event
+ioctl can create a valid immediately-signaled sync_file. Real external and
+cross-queue dependencies are preserved.
+
+Signed-off-by: LFRon <ronforever@outlook.com>
+---
+diff --git a/src/freedreno/vulkan/tu_knl_kgsl.cc b/src/freedreno/vulkan/tu_knl_kgsl.cc
+index 2e14201..3db801b 100644
+--- a/src/freedreno/vulkan/tu_knl_kgsl.cc
++++ b/src/freedreno/vulkan/tu_knl_kgsl.cc
+@@ -1557,6 +1557,12 @@ kgsl_queue_submit(struct tu_queue *queue, void *_submit,
+                                    "refusing to submit an unsignaled semaphore wait to KGSL");
+       }
+ 
++      if (wait_sync.state == KGSL_SYNCOBJ_STATE_SIGNALED) {
++         wait_sync.state = KGSL_SYNCOBJ_STATE_TS;
++         wait_sync.queue = queue;
++         wait_sync.timestamp = 0;
++      }
++
+       if (signal_count == 1) {
+          /* Move instead of duplicating the syncobj, as we don't need to
+           * keep the original one around.
