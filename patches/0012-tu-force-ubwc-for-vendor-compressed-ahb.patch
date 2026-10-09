@@ -1,0 +1,24 @@
+From: LFRon <ronforever@outlook.com>
+Date: 2026-10-09 17:20:22 +0800
+Subject: [PATCH] tu: force UBWC for vendor-compressed AHB modifiers
+
+Compare the vendor bits and the compression bit separately instead of the
+exact DRM_FORMAT_MOD_QCOM_COMPRESSED value, so vendor-compressed modifiers
+that carry extra flags still force UBWC.
+
+Signed-off-by: LFRon <ronforever@outlook.com>
+---
+diff --git a/src/freedreno/vulkan/tu_image.cc b/src/freedreno/vulkan/tu_image.cc
+index 478a63b7..0bdf39ec 100644
+--- a/src/freedreno/vulkan/tu_image.cc
++++ b/src/freedreno/vulkan/tu_image.cc
+@@ -722,7 +722,8 @@ tu_image_init(struct tu_device *device, struct tu_image *image,
+     * UBWC, then override how the image was created.
+     */
+    bool force_ubwc = false;
+-   if (modifier == DRM_FORMAT_MOD_QCOM_COMPRESSED) {
++   if (fourcc_mod_is_vendor(modifier, QCOM) &&
++       (modifier & DRM_FORMAT_MOD_QCOM_COMPRESSED)) {
+       assert(!force_linear_tile);
+       ubwc_enabled = true;
+       force_ubwc = true;
