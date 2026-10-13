@@ -1,0 +1,35 @@
+From: LFRon <ronforever@outlook.com>
+Date: 2026-10-13 15:02:18 +0800
+Subject: [PATCH] vulkan/android: report COLOR_ATTACHMENT for framebuffer-usage external AHBs
+
+ANGLE's AHardwareBuffer import requires COLOR_ATTACHMENT in formatFeatures
+as soon as the buffer usage contains GPU_FRAMEBUFFER, but it does not chain
+the external format resolve properties during that validation. Buffers such
+as a decoder's GPU_SAMPLED_IMAGE|GPU_FRAMEBUFFER output were rejected with
+EGL_BAD_PARAMETER, making eglCreateImageKHR fail every frame.
+
+Report COLOR_ATTACHMENT on the public path for eight-bit external format
+buffers whose usage allows framebuffer use. The resolve contract stays
+enforced at image creation, and callers that chain the resolve properties
+still get the same bit.
+
+Signed-off-by: LFRon <ronforever@outlook.com>
+---
+diff --git a/src/vulkan/runtime/vk_android.c b/src/vulkan/runtime/vk_android.c
+index e2575c96..e8baf8cd 100644
+--- a/src/vulkan/runtime/vk_android.c
++++ b/src/vulkan/runtime/vk_android.c
+@@ -1186,6 +1186,13 @@ finish:
+     */
+    p->formatFeatures |= VK_FORMAT_FEATURE_2_MIDPOINT_CHROMA_SAMPLES_BIT_KHR;
+ 
++   if (p->format == VK_FORMAT_UNDEFINED &&
++       (desc.usage & AHARDWAREBUFFER_USAGE_GPU_FRAMEBUFFER) != 0 &&
++       device->physical->supported_extensions.ANDROID_external_format_resolve &&
++       vk_external_format_to_efr_format(external_format) ==
++          VK_FORMAT_R8G8B8A8_UNORM)
++      p->formatFeatures |= VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BIT;
++
+    return VK_SUCCESS;
+ }
+ 
