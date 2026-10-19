@@ -1,0 +1,30 @@
+From: LFRon <ronforever@outlook.com>
+Date: 2026-10-19 17:59:53 +0800
+Subject: [PATCH] vulkan: keep GetPhysicalDeviceImageFormatProperties2 queryable for 1.0 instances
+
+The Android loader resolves this entrypoint's core name through
+vkGetInstanceProcAddr while initializing its driver dispatch table, for
+instances of every requested apiVersion, and stores the answer without
+falling back to the KHR name. Its WSI code then calls the stored pointer
+without a NULL check when probing R8G8B8 surface format support.
+
+Keep the entrypoint queryable regardless of the version the instance
+requested. Filtering what applications can see is the loader's job.
+
+Signed-off-by: LFRon <ronforever@outlook.com>
+---
+diff --git a/src/vulkan/util/vk_dispatch_table_gen.py b/src/vulkan/util/vk_dispatch_table_gen.py
+index c2776d26..41488171 100644
+--- a/src/vulkan/util/vk_dispatch_table_gen.py
++++ b/src/vulkan/util/vk_dispatch_table_gen.py
+@@ -512,7 +512,9 @@ vk_physical_device_entrypoint_is_enabled(int index, uint32_t core_version,
+ % for e in physical_device_entrypoints:
+    case ${e.entry_table_index}:
+       /* ${e.name} */
+-   % if e.core_version:
++   % if e.name == 'GetPhysicalDeviceImageFormatProperties2':
++      return true;
++   % elif e.core_version:
+       return ${e.core_version.c_vk_version()} <= core_version;
+    % elif e.extensions:
+      % for ext in e.extensions:
