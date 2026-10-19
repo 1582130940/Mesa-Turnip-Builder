@@ -1,0 +1,56 @@
+From: Charles DuBose <kayakyakr@gmail.com>
+Date: Sun, 18 Oct 2026 20:54:56 -0400
+Subject: [PATCH] tu: report the process-wide heap usage in the memory budget
+
+VK_EXT_memory_budget's heapUsage counts one Vulkan instance's allocations,
+since each instance enumerates its own physical device. A D3D12 game under
+Proton allocates through vkd3d-proton's instance but reads its usage through
+DXVK's DXGI, whose instance allocates nothing: Diablo IV logged 0 MB used
+against a budget that shrank with the system's free memory, never trimmed,
+and Android killed it.
+
+One driver library is loaded per process, so a counter beside heap.used,
+added where Turnip adds to and takes from it, covers every instance.
+heapUsage reports that counter and the budget is computed from it; heap.used
+still guards each instance's heap size.
+
+Signed-off-by: Charles DuBose <kayakyakr@gmail.com>
+---
+diff --git a/src/freedreno/vulkan/tu_device.cc b/src/freedreno/vulkan/tu_device.cc
+index e8ef940..10e8efa 100644
+--- a/src/freedreno/vulkan/tu_device.cc
++++ b/src/freedreno/vulkan/tu_device.cc
+@@ -2114,6 +2114,8 @@ tu_get_system_heap_size(struct tu_physical_device *physical_device)
+    return available_ram;
+ }
+ 
++static uint64_t tu_process_heap_used;
++
+ static inline VkDeviceSize
+ tu_get_budget_memory(struct tu_physical_device *physical_device)
+ {
+@@ -2156,7 +2158,7 @@ tu_GetPhysicalDeviceMemoryProperties2(VkPhysicalDevice pdev,
+       case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_BUDGET_PROPERTIES_EXT: {
+          VkPhysicalDeviceMemoryBudgetPropertiesEXT *memory_budget_props =
+             (VkPhysicalDeviceMemoryBudgetPropertiesEXT *) ext;
+-         memory_budget_props->heapUsage[0] = physical_device->heap.used;
++         memory_budget_props->heapUsage[0] = p_atomic_read(&tu_process_heap_used);
+          memory_budget_props->heapBudget[0] = tu_get_budget_memory(physical_device);
+ 
+          /* The heapBudget and heapUsage values must be zero for array elements
+@@ -3509,6 +3511,7 @@ tu_add_to_heap(struct tu_device *dev, struct tu_bo *bo)
+       return vk_errorf(dev, VK_ERROR_OUT_OF_DEVICE_MEMORY,
+                        "Out of heap memory");
+    }
++   p_atomic_add(&tu_process_heap_used, bo->size);
+    return VK_SUCCESS;
+ }
+ 
+@@ -3597,6 +3600,7 @@ _tu_destroy_memory(struct tu_device *device,
+ {
+    if (mem->bo) {
+       p_atomic_add(&device->physical_device->heap.used, -mem->bo->size);
++      p_atomic_add(&tu_process_heap_used, -mem->bo->size);
+       tu_bo_finish(device, mem->bo);
+    }
+ 
