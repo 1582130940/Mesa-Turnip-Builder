@@ -17,10 +17,10 @@ small-pass tuning or latency override.
 Signed-off-by: LFRon <ronforever@outlook.com>
 ---
 diff --git a/src/freedreno/vulkan/tu_autotune.cc b/src/freedreno/vulkan/tu_autotune.cc
-index e60329d..6cefa53 100644
+index c7551c16..667aae77 100644
 --- a/src/freedreno/vulkan/tu_autotune.cc
 +++ b/src/freedreno/vulkan/tu_autotune.cc
-@@ -980,9 +980,45 @@ struct tu_autotune::rp_history {
+@@ -1014,9 +1014,45 @@ struct tu_autotune::rp_history {
     /** Bandwidth Estimation Algorithm **/
     struct bandwidth_algo {
      private:
@@ -66,7 +66,7 @@ index e60329d..6cefa53 100644
        void update(uint32_t samples)
        {
           mean_samples_passed.add(samples);
-@@ -994,17 +1030,7 @@ struct tu_autotune::rp_history {
+@@ -1028,17 +1064,7 @@ struct tu_autotune::rp_history {
                                     const struct tu_framebuffer *framebuffer,
                                     const struct tu_render_pass_state *rp_state)
        {
@@ -83,9 +83,9 @@ index e60329d..6cefa53 100644
 -         }
 +         const uint64_t pass_pixel_count = get_pass_pixel_count(cmd_state, framebuffer);
  
-          uint64_t sysmem_bandwidth = (uint64_t) pass->sysmem_bandwidth_per_pixel * pass_pixel_count;
-          uint64_t gmem_bandwidth = (uint64_t) pass->gmem_bandwidth_per_pixel * pass_pixel_count;
-@@ -1028,7 +1054,7 @@ struct tu_autotune::rp_history {
+          uint64_t sysmem_bandwidth = static_cast<uint64_t>(pass->sysmem_bandwidth_per_pixel) * pass_pixel_count;
+          uint64_t gmem_bandwidth = static_cast<uint64_t>(pass->gmem_bandwidth_per_pixel) * pass_pixel_count;
+@@ -1062,7 +1088,7 @@ struct tu_autotune::rp_history {
           /* Drawcalls access GMEM in GMEM rendering, but we do not want to ignore them completely.  The state changes
            * between tiles also have an overhead.  The magic numbers of 11 and 10 are randomly chosen.
            */
@@ -94,7 +94,7 @@ index e60329d..6cefa53 100644
  
           bool select_sysmem = sysmem_bandwidth <= gmem_bandwidth;
           render_mode mode = select_sysmem ? render_mode::SYSMEM : render_mode::GMEM;
-@@ -1809,10 +1835,24 @@ tu_autotune::get_optimal_mode(struct tu_cmd_buffer *cmd_buffer, rp_ctx_t *rp_ctx
+@@ -1852,13 +1878,24 @@ tu_autotune::get_optimal_mode(struct tu_cmd_buffer *cmd_buffer, rp_ctx_t *rp_ctx
      *
      * Note: If we detect a small RP to be latency sensitive, we enable the autotuner for it anyway.
      */
@@ -115,10 +115,13 @@ index e60329d..6cefa53 100644
 +      at_log_base("small RP fixed attachment costs prefer GMEM");
 +      return render_mode::GMEM;
 +   }
++
++   bool ignore_small_rp = !config.test(mod_flag::TUNE_SMALL) && small_rp && !track_small_rp_latency;
  
--   if (!enabled || simultaneous_use || ignore_small_rp)
-+   const bool ignore_small_rp = !config.test(mod_flag::TUNE_SMALL) && small_rp && !track_small_rp_latency;
-+   if (ignore_small_rp)
-       return default_mode;
+-   if (!enabled)
+-      return forced("Autotuner is disabled", default_mode);
+-   if (simultaneous_use)
+-      return forced("VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT", default_mode);
+    if (ignore_small_rp)
+       return forced("Too few draws to tune", default_mode);
  
-    /* We can return early with the decision based on the draw call count, instead of needing to hash the renderpass

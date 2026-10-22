@@ -13,13 +13,13 @@ submit path, destroy the temporary sync objects and mark the device lost.
 Signed-off-by: LFRon <ronforever@outlook.com>
 ---
 diff --git a/src/freedreno/vulkan/tu_knl_kgsl.cc b/src/freedreno/vulkan/tu_knl_kgsl.cc
-index 8b51fa2..7f7a644 100644
+index 3856e92..2e14201 100644
 --- a/src/freedreno/vulkan/tu_knl_kgsl.cc
 +++ b/src/freedreno/vulkan/tu_knl_kgsl.cc
-@@ -1429,8 +1429,12 @@ kgsl_queue_submit(struct tu_queue *queue, void *_submit,
- 
-       struct kgsl_syncobj wait_sync =
-          kgsl_syncobj_merge(wait_semaphores, wait_count + 1);
+@@ -1550,8 +1550,12 @@ kgsl_queue_submit(struct tu_queue *queue, void *_submit,
+       VkResult result = kgsl_syncobj_merge(queue->device, wait_semaphores, wait_count + 1, &wait_sync);
+       if (result != VK_SUCCESS)
+          return result;
 -      assert(wait_sync.state !=
 -             KGSL_SYNCOBJ_STATE_UNSIGNALED); // Would wait forever
 +      if (unlikely(wait_sync.state == KGSL_SYNCOBJ_STATE_UNSIGNALED)) {
@@ -31,17 +31,16 @@ index 8b51fa2..7f7a644 100644
  
        if (signal_count == 1) {
           /* Move instead of duplicating the syncobj, as we don't need to
-@@ -1508,8 +1512,11 @@ kgsl_queue_submit(struct tu_queue *queue, void *_submit,
- 
-    struct kgsl_syncobj wait_sync =
-       kgsl_syncobj_merge(wait_semaphores, wait_count);
--   assert(wait_sync.state !=
--          KGSL_SYNCOBJ_STATE_UNSIGNALED); // Would wait forever
+@@ -1604,7 +1608,11 @@ kgsl_queue_submit(struct tu_queue *queue, void *_submit,
+    result = kgsl_syncobj_merge(queue->device, wait_semaphores, wait_count, &wait_sync);
+    if (result != VK_SUCCESS)
+       return result;
+-   assert(wait_sync.state != KGSL_SYNCOBJ_STATE_UNSIGNALED); // Would wait forever
 +   if (unlikely(wait_sync.state == KGSL_SYNCOBJ_STATE_UNSIGNALED)) {
 +      kgsl_syncobj_destroy(&wait_sync);
 +      return vk_device_set_lost(&queue->device->vk,
 +                                "refusing to submit an unsignaled semaphore wait to KGSL");
 +   }
  
-    struct kgsl_cmd_syncpoint_timestamp ts;
-    struct kgsl_cmd_syncpoint_fence fn;
+    if (u_trace_submission_data) {
+       mtx_lock(&queue->device->kgsl_profiling_mutex);

@@ -12,10 +12,10 @@ ndkdir="android-ndk-r30"
 ndkver="https://dl.google.com/android/repository/${ndkdir}-linux.zip"
 sdkver="35"
 
-# Define Mesa version and download URL
-mesa_ver="26.2.3"
-mesadir="mesa-mesa-${mesa_ver}"
-mesaver="https://gitlab.freedesktop.org/mesa/mesa/-/archive/mesa-${mesa_ver}/mesa-mesa-${mesa_ver}.zip?ref_type=tags"
+# Define Mesa version and download URL. This tracks a branch rather than a tag.
+mesa_ref="main"
+mesadir="mesa-${mesa_ref}"
+mesaver="https://gitlab.freedesktop.org/mesa/mesa/-/archive/${mesa_ref}/${mesadir}.zip?ref_type=heads"
 
 # Define working directories
 workdir="$(pwd)/turnip_workdir"         # Base directory for all operations
@@ -79,6 +79,22 @@ fi
 [ -t 1 ] && sleep 0.25 || true
 [ -t 1 ] && clear || true
 
+# Key the Mesa archive cache on the commit the branch points at, not on the date:
+# a run on a new day reuses the cached archive when the branch has not moved,
+# and a second run on the same day picks up commits that landed since.
+echo "Resolving the current ${mesa_ref} commit..." $'\n'
+mesa_api="https://gitlab.freedesktop.org/api/v4/projects/mesa%2Fmesa/repository/branches/${mesa_ref}"
+mesa_commit=$(curl -sSL --fail "$mesa_api" 2>/dev/null \
+    | grep -o '"commit":{"id":"[0-9a-f]\{40\}"' \
+    | sed 's/.*"id":"//; s/"$//' || true)
+if [ -n "$mesa_commit" ]; then
+    mesa_zip="${mesadir}-${mesa_commit}.zip"
+    echo -e "$green - ${mesa_ref} is at ${mesa_commit:0:12} $nocolor" $'\n'
+else
+    echo -e "$red - Could not resolve the ${mesa_ref} commit; the Mesa archive will be downloaded again. $nocolor" $'\n'
+    mesa_zip="${mesadir}-unresolved.zip"
+fi
+
 # Ensure work directory exists and enter it
 echo "Ensuring work directory exists: $workdir" $'\n'
 mkdir -p "$workdir"
@@ -91,7 +107,10 @@ rm -rf "$ndkdir" "$mesadir" "fake-cc" \
        "arm64-v8a" "armeabi-v7a" \
        "meson_log" "ninja_log" "meson_log-"* "ninja_log-"* \
        "cross-"*.txt "native.txt" \
-       "${ndkdir}.zip.part" "${mesadir}.zip.part"
+       "${ndkdir}.zip.part" "${mesadir}"-*.zip.part
+
+# Drop Mesa archives cached for other commits
+find . -maxdepth 1 -name "${mesadir}-*.zip" ! -name "$mesa_zip" -delete
 
 # Download Android NDK
 fetch_archive "$ndkver" "${ndkdir}.zip" "Android NDK"
@@ -102,12 +121,13 @@ echo "Extracting Android NDK..." $'\n'
 unzip "$ndkdir".zip &> /dev/null
 
 # Download Mesa source
-fetch_archive "$mesaver" "${mesadir}.zip" "Mesa source"
+[ -n "$mesa_commit" ] || rm -f "$mesa_zip"
+fetch_archive "$mesaver" "$mesa_zip" "Mesa source"
 
 [ -t 1 ] && clear || true
 
 echo "Extracting Mesa source..." $'\n'
-unzip "$mesadir".zip &> /dev/null
+unzip "$mesa_zip" &> /dev/null
 cd $mesadir
 
 # Apply local Mesa patches
@@ -255,6 +275,7 @@ build_abi arm64-v8a aarch64-linux-android aarch64 armv8 ", '-fno-plt'"
 build_abi armeabi-v7a armv7a-linux-androideabi arm armv7hl ""
 
 [ -t 1 ] && clear || true
+echo -e "Mesa ${mesa_ref} commit: ${mesa_commit:-unresolved}" $'\n'
 echo -e "Turnip Drivers:" $'\n'
 echo -e "  64-bit (vendor/lib64/hw): $workdir/arm64-v8a/vulkan.adreno.so" $'\n'
 echo -e "  32-bit (vendor/lib/hw)  : $workdir/armeabi-v7a/vulkan.adreno.so" $'\n'

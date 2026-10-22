@@ -15,10 +15,10 @@ Identity maps are unaffected.
 Signed-off-by: LFRon <ronforever@outlook.com>
 ---
 diff --git a/src/vulkan/runtime/vk_android.c b/src/vulkan/runtime/vk_android.c
-index 7f8ac1e..14fc678 100644
+index 26dc74bf..e2575c96 100644
 --- a/src/vulkan/runtime/vk_android.c
 +++ b/src/vulkan/runtime/vk_android.c
-@@ -942,6 +942,11 @@ get_ahb_buffer_format_properties2(
+@@ -1117,6 +1117,11 @@ get_ahb_buffer_format_properties2(
     case DRM_FORMAT_NV12:
        external_format = VK_FORMAT_G8_B8R8_2PLANE_420_UNORM;
        break;
@@ -31,13 +31,13 @@ index 7f8ac1e..14fc678 100644
        external_format = VK_FORMAT_G10X6_B10X6R10X6_2PLANE_420_UNORM_3PACK16;
        break;
 diff --git a/src/vulkan/runtime/vk_ycbcr_conversion.c b/src/vulkan/runtime/vk_ycbcr_conversion.c
-index 9c1da39..74fcfb6 100644
+index f754a4dd..0b0c5d62 100644
 --- a/src/vulkan/runtime/vk_ycbcr_conversion.c
 +++ b/src/vulkan/runtime/vk_ycbcr_conversion.c
-@@ -60,18 +60,13 @@ vk_common_CreateSamplerYcbcrConversion(VkDevice _device,
-    if (android_ext_info && android_ext_info->externalFormat) {
+@@ -58,18 +58,13 @@ vk_common_CreateSamplerYcbcrConversion(VkDevice _device,
+    if (external_format != VK_FORMAT_UNDEFINED) {
        assert(pCreateInfo->format == VK_FORMAT_UNDEFINED);
-       state->format = android_ext_info->externalFormat;
+       state->format = external_format;
 -   } else {
 -      /* The Vulkan 1.1.95 spec says:
 -       *
