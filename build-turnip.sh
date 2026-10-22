@@ -8,7 +8,7 @@ nocolor='\033[0m'
 # Define Android NDK version and download URL
 ndkdir="android-ndk-r30"
 ndkver="https://dl.google.com/android/repository/${ndkdir}-linux.zip"
-sdkver="34"
+sdkver="35"
 
 # Define Mesa version and download URL
 mesa_ver="26.2.3"
@@ -136,18 +136,21 @@ mkdir -p "$workdir/$ndkdir/pkg-config"
 cat <<EOF >"android-aarch64.txt"
 [binaries]
 ar = '$ndk_bin/llvm-ar'
-c = ['ccache', '$ndk_bin/aarch64-linux-android$sdkver-clang', '-Wno-deprecated-declarations', '-Wno-gnu-alignof-expression']
-cpp = ['ccache', '$ndk_bin/aarch64-linux-android$sdkver-clang++', '--start-no-unused-arguments', '-fno-exceptions', '-fno-unwind-tables', '-fno-asynchronous-unwind-tables', '-static-libstdc++', '--end-no-unused-arguments', '-Wno-error=c++11-narrowing', '-Wno-deprecated-declarations', '-Wno-gnu-alignof-expression']
+c = ['ccache', '$ndk_bin/aarch64-linux-android$sdkver-clang', '-fno-plt', '-fno-exceptions', '-fno-unwind-tables', '-fno-asynchronous-unwind-tables', '-Wno-deprecated-declarations', '-Wno-gnu-alignof-expression']
+cpp = ['ccache', '$ndk_bin/aarch64-linux-android$sdkver-clang++', '--start-no-unused-arguments', '-fno-plt', '-fno-exceptions', '-fno-unwind-tables', '-fno-asynchronous-unwind-tables', '-static-libstdc++', '--end-no-unused-arguments', '-Wno-error=c++11-narrowing', '-Wno-deprecated-declarations', '-Wno-gnu-alignof-expression']
 c_ld = '$ndk_bin/ld.lld'
 cpp_ld = '$ndk_bin/ld.lld'
 strip = '$ndk_bin/llvm-strip'
-pkg-config = ['env', 'PKG_CONFIG_LIBDIR=$workdir/$ndkdir/pkg-config', '/usr/bin/pkg-config']
+pkg-config = ['env', 'PKG_CONFIG_LIBDIR=$workdir/$ndkdir/pkg-config', 'pkg-config']
 
 [host_machine]
 system = 'android'
 cpu_family = 'aarch64'
 cpu = 'armv8'
 endian = 'little'
+
+[properties]
+needs_exe_wrapper = true
 EOF
 
 cat <<EOF >"native.txt"
