@@ -175,7 +175,9 @@ if ! CC=clang CXX=clang++ meson setup build-android-aarch64 \
     -Dplatforms=android \
     -Dplatform-sdk-version="$sdkver" \
     -Dandroid-stub=true \
+    -Dandroid-strict=false \
     -Dgallium-drivers= \
+    -Dvulkan-beta=true \
     -Dvulkan-drivers=freedreno \
     -Dfreedreno-kmds=kgsl \
     -Degl=disabled \
