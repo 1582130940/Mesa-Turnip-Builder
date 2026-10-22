@@ -110,6 +110,14 @@ echo "Extracting Mesa source..." $'\n'
 unzip "$mesadir".zip &> /dev/null
 cd $mesadir
 
+# Report the driver under the name Adreno OEM drivers use
+tu_device="src/freedreno/vulkan/tu_device.cc"
+sed -i 's/"Turnip Adreno/"Adreno/g' "$tu_device"
+if ! grep -q '"Adreno (TM)' "$tu_device"; then
+    echo -e "$red Failed to rename the Adreno device name in $tu_device $nocolor"
+    exit 1
+fi
+
 # Set NDK Clang bin directory
 ndk_bin="$workdir/$ndkdir/toolchains/llvm/prebuilt/linux-x86_64/bin"
 
