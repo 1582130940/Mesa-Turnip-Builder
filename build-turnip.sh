@@ -1,4 +1,6 @@
-#!/bin/bash -e
+#!/bin/bash
+
+set -euo pipefail
 
 # Define colors for terminal output
 green='\033[0;32m'
@@ -207,11 +209,14 @@ cd "$workdir"
 # Strip unneeded debug symbols to reduce size from ~60MB+ to ~15-20MB
 "$ndk_bin/llvm-strip" --strip-unneeded libvulkan_freedreno.so
 
-# Prepare driver files
-cp libvulkan_freedreno.so vulkan.adreno.so
+# Prepare driver file
+mv libvulkan_freedreno.so vulkan.adreno.so
 
 # Set DT_SONAME using patchelf to match driver filenames
 patchelf --set-soname vulkan.adreno.so vulkan.adreno.so
+
+# The linker marks shared libraries executable; vendor HAL modules are 0644
+chmod 0644 vulkan.adreno.so
 
 [ -t 1 ] && clear || true
 echo -e "Turnip Driver : $workdir/vulkan.adreno.so" $'\n'
