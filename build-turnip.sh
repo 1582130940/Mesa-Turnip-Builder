@@ -18,6 +18,29 @@ mesaver="https://gitlab.freedesktop.org/mesa/mesa/-/archive/mesa-${mesa_ver}/mes
 # Define working directories
 workdir="$(pwd)/turnip_workdir"         # Base directory for all operations
 
+# Download an archive unless a cached copy passes an integrity check.
+# The archive is only moved into place once it is complete, so an interrupted
+# download is never reused as a valid cache entry.
+fetch_archive() {
+    local url="$1" dest="$2" label="$3"
+
+    if [ -f "$dest" ] && unzip -tq "$dest" &> /dev/null; then
+        echo -e "$green - Found $dest, skipping $label download. $nocolor" $'\n'
+        return 0
+    fi
+
+    echo "Downloading $label..." $'\n'
+    curl -sSL --fail "$url" --output "$dest.part"
+
+    if ! unzip -tq "$dest.part" &> /dev/null; then
+        rm -f "$dest.part"
+        echo -e "$red Downloaded archive failed validation: $dest $nocolor"
+        exit 1
+    fi
+
+    mv "$dest.part" "$dest"
+}
+
 # List of required packages to build the Turnip driver
 deps="meson ninja patchelf unzip curl flex bison clang ccache pkg-config"
 [ -t 1 ] && clear || true
@@ -54,35 +77,33 @@ fi
 [ -t 1 ] && sleep 0.25 || true
 [ -t 1 ] && clear || true
 
-# Clean work directory if it exists
-if [ -d "$workdir" ]; then
-    echo "Work directory already exists. Cleaning before proceeding..." $'\n'
-    rm -rf "$workdir"
-    sleep 0.25
-fi
+# Ensure work directory exists and enter it
+echo "Ensuring work directory exists: $workdir" $'\n'
+mkdir -p "$workdir"
+cd "$workdir" || exit 1
 
-echo "Creating and entering the work directory..." $'\n'
-mkdir -p "$workdir" && cd "$_"
+# Clean only build artifacts, keeping downloaded source archives
+echo "Cleaning previous build artifacts (if any)..." $'\n'
+rm -rf "$ndkdir" "$mesadir" "fake-cc" \
+       "libvulkan_freedreno.so" "vulkan.adreno.so" \
+       "meson_log" "ninja_log" \
+       "${ndkdir}.zip.part" "${mesadir}.zip.part"
 
 # Download Android NDK
-echo "Downloading Android NDK..." $'\n'
-curl -sSL --fail "$ndkver" --output "$ndkdir".zip
+fetch_archive "$ndkver" "${ndkdir}.zip" "Android NDK"
 
 [ -t 1 ] && clear || true
 
 echo "Extracting Android NDK..." $'\n'
 unzip "$ndkdir".zip &> /dev/null
-rm -f "$ndkdir".zip
 
 # Download Mesa source
-echo "Downloading Latest Mesa source ..." $'\n'
-curl -sSL --fail "$mesaver" --output "$mesadir".zip
+fetch_archive "$mesaver" "${mesadir}.zip" "Mesa source"
 
 [ -t 1 ] && clear || true
 
 echo "Extracting Mesa source..." $'\n'
 unzip "$mesadir".zip &> /dev/null
-rm -f "$mesadir".zip
 cd $mesadir
 
 # Set NDK Clang bin directory
