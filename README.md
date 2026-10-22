@@ -12,6 +12,11 @@ Clone the repository and run the build script:
 bash build-turnip.sh
 ```
 
+The driver is built for both Android ABIs:
+
+- `turnip_workdir/arm64-v8a/vulkan.adreno.so` for `/vendor/lib64/hw/`
+- `turnip_workdir/armeabi-v7a/vulkan.adreno.so` for `/vendor/lib/hw/`
+
 ## Credits
 
 This project wouldn't be possible without the help of these people:

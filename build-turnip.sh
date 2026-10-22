@@ -88,7 +88,9 @@ cd "$workdir" || exit 1
 echo "Cleaning previous build artifacts (if any)..." $'\n'
 rm -rf "$ndkdir" "$mesadir" "fake-cc" \
        "libvulkan_freedreno.so" "vulkan.adreno.so" \
-       "meson_log" "ninja_log" \
+       "arm64-v8a" "armeabi-v7a" \
+       "meson_log" "ninja_log" "meson_log-"* "ninja_log-"* \
+       "cross-"*.txt "native.txt" \
        "${ndkdir}.zip.part" "${mesadir}.zip.part"
 
 # Download Android NDK
@@ -132,30 +134,10 @@ ln -sf "$ndk_bin/clang++" "$fakecc_dir/c++"
 # Prepend both fake-cc and NDK bin to PATH
 export PATH="$fakecc_dir:$ndk_bin:$PATH"
 
-echo "Creating Meson cross file..." $'\n'
+echo "Creating Meson cross files..." $'\n'
 mkdir -p "$workdir/$ndkdir/pkg-config"
 
-cat <<EOF >"android-aarch64.txt"
-[binaries]
-ar = '$ndk_bin/llvm-ar'
-c = ['ccache', '$ndk_bin/aarch64-linux-android$sdkver-clang', '-fno-plt', '-fno-exceptions', '-fno-unwind-tables', '-fno-asynchronous-unwind-tables', '-Wno-deprecated-declarations', '-Wno-gnu-alignof-expression']
-cpp = ['ccache', '$ndk_bin/aarch64-linux-android$sdkver-clang++', '--start-no-unused-arguments', '-fno-plt', '-fno-exceptions', '-fno-unwind-tables', '-fno-asynchronous-unwind-tables', '-static-libstdc++', '--end-no-unused-arguments', '-Wno-error=c++11-narrowing', '-Wno-deprecated-declarations', '-Wno-gnu-alignof-expression']
-c_ld = '$ndk_bin/ld.lld'
-cpp_ld = '$ndk_bin/ld.lld'
-strip = '$ndk_bin/llvm-strip'
-pkg-config = ['env', 'PKG_CONFIG_LIBDIR=$workdir/$ndkdir/pkg-config', 'pkg-config']
-
-[host_machine]
-system = 'android'
-cpu_family = 'aarch64'
-cpu = 'armv8'
-endian = 'little'
-
-[properties]
-needs_exe_wrapper = true
-EOF
-
-cat <<EOF >"native.txt"
+cat <<EOF >"$workdir/native.txt"
 [build_machine]
 c = ['ccache', 'clang']
 cpp = ['ccache', 'clang++']
@@ -169,57 +151,94 @@ cpu = 'x86_64'
 endian = 'little'
 EOF
 
-echo "Generating build files..." $'\n'
-if ! CC=clang CXX=clang++ meson setup build-android-aarch64 \
-    --cross-file "$workdir/$mesadir/android-aarch64.txt" \
-    --native-file "$workdir/$mesadir/native.txt" \
-    -Dbuildtype=release \
-    -Dplatforms=android \
-    -Dplatform-sdk-version="$sdkver" \
-    -Dandroid-stub=true \
-    -Dandroid-strict=false \
-    -Dgallium-drivers= \
-    -Dvulkan-beta=true \
-    -Dvulkan-drivers=freedreno \
-    -Dfreedreno-kmds=kgsl \
-    -Degl=disabled \
-    -Dstrip=true &> "$workdir/meson_log"; then
-    echo -e "$red Meson setup failed! Log: $nocolor"
-    cat "$workdir/meson_log"
-    exit 1
-fi
+# Build the driver for one Android ABI. $2 is the NDK target triple, which
+# differs from the ABI name for armv7 (armv7a-linux-androideabi).
+build_abi() {
+    local abi="$1" triple="$2" cpu_family="$3" cpu="$4" extra="$5"
+    local cross_file="$workdir/cross-$abi.txt"
+    local build_dir="build-android-$abi"
+    local driver_src out_dir
 
-# Compile build files using Ninja
-echo "Compiling build files..." $'\n'
-if ! ninja -C build-android-aarch64 &> "$workdir"/ninja_log; then
-    echo -e "$red Ninja compilation failed! Log: $nocolor"
-    cat "$workdir/ninja_log"
-    exit 1
-fi
+    cat <<EOF >"$cross_file"
+[binaries]
+ar = '$ndk_bin/llvm-ar'
+c = ['ccache', '$ndk_bin/$triple$sdkver-clang'$extra, '-fno-exceptions', '-fno-unwind-tables', '-fno-asynchronous-unwind-tables', '-Wno-deprecated-declarations', '-Wno-gnu-alignof-expression']
+cpp = ['ccache', '$ndk_bin/$triple$sdkver-clang++'$extra, '--start-no-unused-arguments', '-fno-exceptions', '-fno-unwind-tables', '-fno-asynchronous-unwind-tables', '-static-libstdc++', '--end-no-unused-arguments', '-Wno-error=c++11-narrowing', '-Wno-deprecated-declarations', '-Wno-gnu-alignof-expression']
+c_ld = '$ndk_bin/ld.lld'
+cpp_ld = '$ndk_bin/ld.lld'
+strip = '$ndk_bin/llvm-strip'
+pkg-config = ['env', 'PKG_CONFIG_LIBDIR=$workdir/$ndkdir/pkg-config', 'pkg-config']
 
-echo "Stripping and patching driver binaries..." $'\n'
-driver_src="$workdir/$mesadir/build-android-aarch64/src/freedreno/vulkan/libvulkan_freedreno.so"
-if [ ! -f "$driver_src" ]; then
-    echo -e "$red Build failed! libvulkan_freedreno.so not found at $driver_src $nocolor" && exit 1
-fi
+[host_machine]
+system = 'android'
+cpu_family = '$cpu_family'
+cpu = '$cpu'
+endian = 'little'
 
-cp "$driver_src" "$workdir/libvulkan_freedreno.so"
-cd "$workdir"
+[properties]
+needs_exe_wrapper = true
+EOF
 
-# Strip unneeded debug symbols to reduce size from ~60MB+ to ~15-20MB
-"$ndk_bin/llvm-strip" --strip-unneeded libvulkan_freedreno.so
+    echo "Generating build files for $abi..." $'\n'
+    if ! CC=clang CXX=clang++ meson setup "$build_dir" \
+        --cross-file "$cross_file" \
+        --native-file "$workdir/native.txt" \
+        -Dbuildtype=release \
+        -Dplatforms=android \
+        -Dplatform-sdk-version="$sdkver" \
+        -Dandroid-stub=true \
+        -Dandroid-strict=false \
+        -Dgallium-drivers= \
+        -Dvulkan-beta=true \
+        -Dvulkan-drivers=freedreno \
+        -Dfreedreno-kmds=kgsl \
+        -Degl=disabled \
+        -Dstrip=true &> "$workdir/meson_log-$abi"; then
+        echo -e "$red Meson setup failed for $abi! Log: $nocolor"
+        cat "$workdir/meson_log-$abi"
+        exit 1
+    fi
 
-# Prepare driver file
-mv libvulkan_freedreno.so vulkan.adreno.so
+    echo "Compiling build files for $abi..." $'\n'
+    if ! ninja -C "$build_dir" &> "$workdir/ninja_log-$abi"; then
+        echo -e "$red Ninja compilation failed for $abi! Log: $nocolor"
+        cat "$workdir/ninja_log-$abi"
+        exit 1
+    fi
 
-# Set DT_SONAME using patchelf to match driver filenames
-patchelf --set-soname vulkan.adreno.so vulkan.adreno.so
+    echo "Stripping and patching the $abi driver..." $'\n'
+    driver_src="$workdir/$mesadir/$build_dir/src/freedreno/vulkan/libvulkan_freedreno.so"
+    if [ ! -f "$driver_src" ]; then
+        echo -e "$red Build failed! libvulkan_freedreno.so not found at $driver_src $nocolor" && exit 1
+    fi
 
-# The linker marks shared libraries executable; vendor HAL modules are 0644
-chmod 0644 vulkan.adreno.so
+    out_dir="$workdir/$abi"
+    mkdir -p "$out_dir"
+    cp "$driver_src" "$out_dir/vulkan.adreno.so"
+
+    # Strip unneeded debug symbols to reduce size from ~60MB+ to ~15-20MB
+    "$ndk_bin/llvm-strip" --strip-unneeded "$out_dir/vulkan.adreno.so"
+
+    # Set DT_SONAME using patchelf to match the installed driver name
+    patchelf --set-soname vulkan.adreno.so "$out_dir/vulkan.adreno.so"
+
+    # The linker marks shared libraries executable; vendor HAL modules are 0644
+    chmod 0644 "$out_dir/vulkan.adreno.so"
+}
+
+# -fno-plt is a no-op on armv7: clang warns "argument unused during
+# compilation", and Meson's feature probes pass
+# -Werror=unused-command-line-argument, so every probe would fail and expat
+# would define size_t to nothing. Only aarch64 supports it.
+build_abi arm64-v8a aarch64-linux-android aarch64 armv8 ", '-fno-plt'"
+build_abi armeabi-v7a armv7a-linux-androideabi arm armv7hl ""
 
 [ -t 1 ] && clear || true
-echo -e "Turnip Driver : $workdir/vulkan.adreno.so" $'\n'
+echo -e "Turnip Drivers:" $'\n'
+echo -e "  64-bit (vendor/lib64/hw): $workdir/arm64-v8a/vulkan.adreno.so" $'\n'
+echo -e "  32-bit (vendor/lib/hw)  : $workdir/armeabi-v7a/vulkan.adreno.so" $'\n'
+echo -e "SHA1:" $'\n'
+(cd "$workdir" && sha1sum arm64-v8a/vulkan.adreno.so armeabi-v7a/vulkan.adreno.so)
 
 # Clean up fake-cc directory and symbolic links on exit
 rm -rf "$fakecc_dir"
