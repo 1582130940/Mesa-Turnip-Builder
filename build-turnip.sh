@@ -44,7 +44,7 @@ fetch_archive() {
 }
 
 # List of required packages to build the Turnip driver
-deps="meson ninja patchelf unzip curl flex bison clang ccache pkg-config"
+deps="meson ninja patchelf unzip curl flex bison clang ccache pkg-config patch"
 [ -t 1 ] && clear || true
 
 echo "Checking system for required dependencies..."
@@ -109,6 +109,19 @@ fetch_archive "$mesaver" "${mesadir}.zip" "Mesa source"
 echo "Extracting Mesa source..." $'\n'
 unzip "$mesadir".zip &> /dev/null
 cd $mesadir
+
+# Apply local Mesa patches
+patch_dir="$(dirname "$workdir")/patches"
+if [ -d "$patch_dir" ]; then
+    for mesa_patch in "$patch_dir"/*.patch; do
+        [ -e "$mesa_patch" ] || continue
+        echo "Applying $(basename "$mesa_patch")..." $'\n'
+        if ! patch -p1 --batch --forward < "$mesa_patch"; then
+            echo -e "$red Failed to apply $(basename "$mesa_patch") $nocolor"
+            exit 1
+        fi
+    done
+fi
 
 # Report the driver under the name Adreno OEM drivers use
 tu_device="src/freedreno/vulkan/tu_device.cc"
