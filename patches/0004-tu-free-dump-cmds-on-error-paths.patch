@@ -1,0 +1,39 @@
+From: alferov.s <alfaktory@gmail.com>
+Subject: [PATCH] tu: free the dump_cmds list on every error path in queue_submit
+
+queue_submit() collects the command stream entries for the read-only dump in
+a local util_dynarray and frees it in the middle of the function, before the
+submit is handed to the kernel. The two patchpoint resolution passes run
+before that point and can append entries and then fail, taking goto out; the
+list is then never released and the entries it grew stay allocated until
+process exit. The paths are low frequency (only reached on an allocation
+failure inside dynamic render pass resolution), but the list is per-submit
+and can be large.
+
+Free the dynarray at the out: label instead, which every exit after the
+first submission attempt reaches, so it runs exactly once whether the submit
+succeeds or fails.
+
+Signed-off-by: alferov.s <alfaktory@gmail.com>
+---
+diff --git a/src/freedreno/vulkan/tu_queue.cc b/src/freedreno/vulkan/tu_queue.cc
+index 225ef8b..a68c8af 100644
+--- a/src/freedreno/vulkan/tu_queue.cc
++++ b/src/freedreno/vulkan/tu_queue.cc
+@@ -551,8 +551,6 @@ queue_submit(struct vk_queue *_queue, struct vk_queue_submit *vk_submit)
+       fd_rd_output_end(rd_output);
+    }
+ 
+-   util_dynarray_fini(&dump_cmds);
+-
+ #ifdef HAVE_PERFETTO
+    if (u_trace_should_process(&device->trace_context)) {
+       for (int i = 0; i < vk_submit->command_buffer_count; i++)
+@@ -602,6 +600,7 @@ queue_submit(struct vk_queue *_queue, struct vk_queue_submit *vk_submit)
+    u_trace_context_process(&device->trace_context, false);
+ 
+ out:
++   util_dynarray_fini(&dump_cmds);
+    tu_submit_finish(device, submit);
+ 
+ fail_create_submit:
