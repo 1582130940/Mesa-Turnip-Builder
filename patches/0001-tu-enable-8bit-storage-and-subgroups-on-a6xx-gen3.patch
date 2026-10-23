@@ -1,0 +1,68 @@
+diff --git a/src/freedreno/common/freedreno_devices.py b/src/freedreno/common/freedreno_devices.py
+index 84064a3..610961e 100644
+--- a/src/freedreno/common/freedreno_devices.py
++++ b/src/freedreno/common/freedreno_devices.py
+@@ -217,9 +217,11 @@ a6xx_gen3 = GPUProps(
+         has_z24uint_s8uint = True,
+         tess_use_shared = True,
+         storage_16bit = True,
++        storage_8bit = True,
+         has_tex_filter_cubic = True,
+         has_separate_chroma_filter = True,
+         has_sample_locations = True,
++        has_getfiberid = True,
+         has_8bpp_ubwc = False,
+         has_dp2acc = True,
+         has_lrz_dir_tracking = True,
+diff --git a/src/freedreno/vulkan/tu_descriptor_set.cc b/src/freedreno/vulkan/tu_descriptor_set.cc
+index 18b9299..22d0533 100644
+--- a/src/freedreno/vulkan/tu_descriptor_set.cc
++++ b/src/freedreno/vulkan/tu_descriptor_set.cc
+@@ -1140,8 +1140,7 @@ write_buffer_descriptor_addr(const struct tu_device *device,
+     * indirectly ensures we won't need more than two descriptors for access of
+     * any size.
+     */
+-   assert(!info->props.storage_8bit || (info->props.storage_16bit &&
+-                                       info->props.has_isam_v));
++   assert(!info->props.storage_8bit || info->props.storage_16bit);
+ 
+    unsigned num_descriptors = 1 +
+       COND(info->props.storage_16bit && !info->props.has_isam_v, 1) +
+diff --git a/src/freedreno/vulkan/tu_shader.cc b/src/freedreno/vulkan/tu_shader.cc
+index 8bfc3b7..c87af41 100644
+--- a/src/freedreno/vulkan/tu_shader.cc
++++ b/src/freedreno/vulkan/tu_shader.cc
+@@ -1805,14 +1805,18 @@ lower_ssbo_descriptor_instr(nir_builder *b, nir_intrinsic_instr *intrin,
+     *  - 8-bit SSBO loads and stores -- next-index descriptor is dedicated to
+     *    storage accesses of that size.
+     */
+-   if ((dev->physical_device->info->props.storage_16bit &&
+-        !dev->physical_device->info->props.has_isam_v &&
++   const struct fd_dev_info *info = dev->physical_device->info;
++   bool is_8bit_access =
++      info->props.storage_8bit &&
++      ((intrin->intrinsic == nir_intrinsic_load_ssbo && intrin->def.bit_size == 8) ||
++       (intrin->intrinsic == nir_intrinsic_store_ssbo && intrin->src[0].ssa->bit_size == 8));
++   bool has_32bit_desc = info->props.storage_16bit && !info->props.has_isam_v;
++
++   if ((has_32bit_desc &&
+         intrin->intrinsic == nir_intrinsic_load_ssbo &&
+         (nir_intrinsic_access(intrin) & ACCESS_CAN_REORDER) &&
+         intrin->def.bit_size > 16) ||
+-       (dev->physical_device->info->props.storage_8bit &&
+-        ((intrin->intrinsic == nir_intrinsic_load_ssbo && intrin->def.bit_size == 8) ||
+-         (intrin->intrinsic == nir_intrinsic_store_ssbo && intrin->src[0].ssa->bit_size == 8)))) {
++       is_8bit_access) {
+       unsigned buffer_src;
+       if (intrin->intrinsic == nir_intrinsic_store_ssbo) {
+          /* This has the value first */
+@@ -1828,7 +1832,8 @@ lower_ssbo_descriptor_instr(nir_builder *b, nir_intrinsic_instr *intrin,
+          nir_def_as_intrinsic(buffer);
+       assert(bindless->intrinsic == nir_intrinsic_bindless_resource_ir3);
+       nir_def *descriptor_idx = bindless->src[0].ssa;
+-      descriptor_idx = nir_iadd_imm(b, descriptor_idx, 1);
++      descriptor_idx = nir_iadd_imm(b, descriptor_idx,
++                                    1 + (is_8bit_access && has_32bit_desc));
+       nir_def *new_buffer =
+          nir_bindless_resource_ir3(b, 32, descriptor_idx,
+                                    .desc_set = nir_intrinsic_desc_set(bindless),
