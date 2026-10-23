@@ -1,0 +1,62 @@
+From: alferov.s <alfaktory@gmail.com>
+Subject: [PATCH] tu: release submit_mutex on every error path in queue_submit
+
+queue_submit() takes device->submit_mutex and then has four early exits that
+leave without releasing it: a failed tu_insert_dynamic_cmdbufs(), a failed
+tu_submit_create(), and a failure in either patchpoint resolution pass. A
+failure in any of them leaves the mutex held, and the next submission blocks
+on it forever rather than reporting the original error.
+
+Take the unlock on all four paths. The tu_submit_create() failure also left
+result holding the success value from tu_insert_dynamic_cmdbufs(), so a
+submission that never happened was reported as VK_SUCCESS; set it to
+VK_ERROR_OUT_OF_HOST_MEMORY while here.
+
+Signed-off-by: alferov.s <alfaktory@gmail.com>
+---
+diff --git a/src/freedreno/vulkan/tu_queue.cc b/src/freedreno/vulkan/tu_queue.cc
+index 225ef8b..1e2aeda 100644
+--- a/src/freedreno/vulkan/tu_queue.cc
++++ b/src/freedreno/vulkan/tu_queue.cc
+@@ -444,8 +444,10 @@ queue_submit(struct vk_queue *_queue, struct vk_queue_submit *vk_submit)
+ 
+    VkResult result =
+       tu_insert_dynamic_cmdbufs(device, &cmd_buffers, &cmdbuf_count);
+-   if (result != VK_SUCCESS)
++   if (result != VK_SUCCESS) {
++      pthread_mutex_unlock(&device->submit_mutex);
+       return result;
++   }
+ 
+    bool has_trace_points = false;
+    static_assert(offsetof(struct tu_cmd_buffer, vk) == 0,
+@@ -458,19 +460,26 @@ queue_submit(struct vk_queue *_queue, struct vk_queue_submit *vk_submit)
+    struct tu_u_trace_submission_data *u_trace_submission_data = NULL;
+ 
+    void *submit = tu_submit_create(device);
+-   if (!submit)
++   if (!submit) {
++      result = VK_ERROR_OUT_OF_HOST_MEMORY;
++      pthread_mutex_unlock(&device->submit_mutex);
+       goto fail_create_submit;
++   }
+ 
+    result = resolve_vis_stream_patchpoints(queue, submit, &dump_cmds,
+                                            cmd_buffers, cmdbuf_count);
+-   if (result != VK_SUCCESS)
++   if (result != VK_SUCCESS) {
++      pthread_mutex_unlock(&device->submit_mutex);
+       goto out;
++   }
+ 
+    result = resolve_cb_control_patchpoints(queue, submit, &dump_cmds,
+                                            cmd_buffers, cmdbuf_count);
+ 
+-   if (result != VK_SUCCESS)
++   if (result != VK_SUCCESS) {
++      pthread_mutex_unlock(&device->submit_mutex);
+       goto out;
++   }
+ 
+    if (has_trace_points) {
+       tu_u_trace_submission_data_create(
